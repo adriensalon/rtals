@@ -146,32 +146,64 @@ static HWND wait_dialog_of_process(HWND app, DWORD timeout_ms = 5000)
     return NULL;
 }
 
-static HWND wait_main_window(DWORD pid, DWORD timeout_ms = 30000)
+static bool is_app_main_candidate(HWND w)
 {
-    HWND _candidate_window = NULL;
+    if (!IsWindow(w)) {
+        return false;
+    }
+    if (GetWindow(w, GW_OWNER) != NULL) {
+        return false; // owned → likely splash/popup
+    }
+    LONG_PTR _ex = GetWindowLongPtrW(w, GWL_EXSTYLE);
+    if (_ex & WS_EX_TOOLWINDOW) {
+        return false; // tool windows ≠ main
+    }
+    LONG_PTR _st = GetWindowLongPtrW(w, GWL_STYLE);
+    if (!(_st & WS_CAPTION)) {
+        return false; // needs a frame/caption
+    }
+    // Optional: insist on sizable frames (many main windows have these)
+    // if (!(_st & WS_THICKFRAME)) return false;
+    return true;
+}
+
+static HWND wait_main_window(DWORD pid, DWORD timeout_ms = 30000, DWORD stable_ms = 800)
+{
     DWORD _start = GetTickCount();
+    HWND _current = NULL;
+    DWORD _since = 0;
+
     while (GetTickCount() - _start < timeout_ms) {
+        HWND _found = NULL;
+        
         for (HWND _window = GetTopWindow(NULL); _window; _window = GetWindow(_window, GW_HWNDNEXT)) {
-            DWORD _process_id = 0;
-            GetWindowThreadProcessId(_window, &_process_id);
-            if (_process_id == pid && IsWindowVisible(_window)) {
-                wchar_t _title[256];
-                GetWindowTextW(_window, _title, 256);
-
-                // splash windows usually disappear quickly
-                // keep track but don’t return immediately
-                if (!_candidate_window || !IsWindow(_candidate_window)) {
-                    _candidate_window = _window;
-                    continue; // first one might be splash
-                }
-
-                // if a new visible window appears after the splash died
-                if (_candidate_window != _window) {
-                    return _window; // real main window
-                }
+            DWORD _pid = 0;
+            GetWindowThreadProcessId(_window, &_pid);
+            if (_pid != pid) {
+                continue;
             }
+            if (!is_app_main_candidate(_window)) {
+                continue; // no IsWindowVisible check
+            }
+            _found = _window;
+            break; // pick the first suitable top-level
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        if (_found) {
+            if (_found == _current) {
+                if (_since && (GetTickCount() - _since >= stable_ms)) {
+                    return _found; // persisted long enough so accept
+                }
+            } else {
+                _current = _found;
+                _since = GetTickCount();
+            }
+        } else {
+            _current = NULL;
+            _since = 0;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     return NULL;
 }
@@ -249,12 +281,14 @@ session::session(const std::filesystem::path& program)
     _impl->process_id = _process_information.dwProcessId;
     CloseHandle(_process_information.hThread);
 
+    WaitForInputIdle(_impl->process_handle, 15000); // ignore failures it’s just a hint
     _impl->main_window = wait_main_window(_impl->process_id, 15000);
     if (!_impl->main_window) {
         std::wcerr << L"Window for process not found\n";
         CloseHandle(_impl->process_handle);
         return;
     }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     std::wcout << L"Found main window: " << _impl->main_window << L"\n";
 }
