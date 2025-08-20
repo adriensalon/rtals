@@ -1,6 +1,6 @@
 # rtals
 
-Instrumentation of the Ableton Live executable. This project provides functionnality for launching Ableton Live process, loading projects, saving projects and saving project as, passing through dialogs when needed. Documentation for the `rtals::session` data structure can be found directly in the [rtals/rtals.hpp](include/rtals/rtals.hpp) header.
+Instrumentation of the Ableton Live executable from C++17. This project provides functionnality for launching Ableton Live process, loading projects, saving projects and saving project as, passing through dialogs when needed. Documentation for the `rtals::session` data structure can be found directly in the [rtals/rtals.hpp](include/rtals/rtals.hpp) header.
 
 ### Usage
 
